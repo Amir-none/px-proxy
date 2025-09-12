@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -e
 
 # =======================
 # pxz-mtpmulti-interactive.sh
@@ -135,4 +136,5 @@ echo
 echo "یادآوری:"
 echo "- اگر Hostname داده‌ای، مطمئن شو A رکورد آن به ${IPV4} اشاره کند."
 echo "- کانتینرها با --restart=always پس از ریبوت خودکار بالا می‌آیند."
+
 
