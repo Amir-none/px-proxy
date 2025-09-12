@@ -1,2 +1,10 @@
 # px-proxy
-pxzone — One-line installer for 6 MTProto proxies with FakeTLS and Telegram channel advertising TAG
+
+🌀 One-line installer for multiple MTProto proxies (with FakeTLS + TAG)
+
+## Install
+
+کافیه روی این دستور کلیک کنی (یا کپی کنی توی ترمینال سرورت):
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Amir-none/px-proxy/main/pxz-mtpmulti-interactive.sh)"
