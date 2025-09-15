@@ -3,20 +3,22 @@ set -e
 
 # ==========================================
 # pxz-mtpmulti-interactive.sh  (by pxzone)
-# Interactive installer for 6 MTProto proxies
-# - Custom ports (optional)
-# - Custom FakeTLS domains (optional)
+# Interactive installer for MTProto proxies
+# - Default mode: 6 proxies with default FakeTLS (only simple list printed)
+# - Custom FakeTLS mode: user picks 1..10 domains; builds exactly that many proxies
+# - Optional custom ports
 # - Optional advertising TAG (from @MTProxybot)
 # - Persistent secrets per instance
 # - Auto-restart on reboot (Docker)
 # ==========================================
 
-COUNT=6
 STATE_BASE="/opt/mtproto-multi"
-DEFAULT_PORTS=(443 8443 9443 10443 11443 12443)
-DEFAULT_DOMAINS=(www.divar.ir www.aparat.com www.rubika.ir www.torob.com www.snapp.ir www.tap30.ir)
 DEFAULT_HOSTNAME=""   # if empty, use IPv4 in links
-DEFAULT_TAG=""        # leave empty; we will ask the user
+# Up to 10 default ports (used when user doesn't provide custom ports)
+DEFAULT_PORTS=(443 8443 9443 10443 11443 12443 13443 14443 15443 16443)
+# Default FakeTLS domains (cycled if needed)
+DEFAULT_DOMAINS=(www.divar.ir www.aparat.com www.rubika.ir www.torob.com www.snapp.ir www.tap30.ir www.digikala.com www.sheypoor.com www.zoomit.ir www.bama.ir)
+
 # Optional: force platform (usually NOT needed). Examples: linux/amd64 or linux/arm64
 FORCE_PLATFORM="${FORCE_PLATFORM:-}"
 
@@ -44,34 +46,68 @@ if [ -z "${HOSTNAME}" ]; then
   HOSTNAME="${DEFAULT_HOSTNAME}"
 fi
 
-# --- ports ---
+# --- FakeTLS mode: default or custom? ---
+CUSTOM_TLS="no"
+echo "Do you want to provide custom FakeTLS domains? (y/N)"
+read -r ANS_TLS
+ANS_TLS="${ANS_TLS,,}"
+if [ "$ANS_TLS" = "y" ] || [ "$ANS_TLS" = "yes" ]; then
+  CUSTOM_TLS="yes"
+fi
+
+# --- COUNT and DOMAINS based on mode ---
+COUNT=6
+DOMAINS=()
+if [ "$CUSTOM_TLS" = "yes" ]; then
+  # Ask how many proxies to build: 1..10
+  while : ; do
+    echo "How many proxies do you want to create? (1-10)"
+    read -r COUNT
+    # ensure COUNT is integer 1..10
+    if [[ "$COUNT" =~ ^[0-9]+$ ]] && [ "$COUNT" -ge 1 ] && [ "$COUNT" -le 10 ]; then
+      break
+    fi
+    echo "Please enter a number between 1 and 10."
+  done
+  echo "Enter $COUNT FakeTLS domain(s) separated by commas (e.g., www.divar.ir,www.aparat.com,...)"
+  read -r CSV_DOMAINS
+  IFS=',' read -r -a DOMAINS <<< "$CSV_DOMAINS"
+  # trim spaces
+  for i in "${!DOMAINS[@]}"; do DOMAINS[$i]="${DOMAINS[$i]//[[:space:]]/}"; done
+  if [ ${#DOMAINS[@]} -ne $COUNT ]; then
+    echo "You must provide exactly $COUNT domains." >&2; exit 1
+  fi
+else
+  # Default mode: 6 proxies; take first 6 default domains (cycle if fewer than COUNT)
+  COUNT=6
+  for i in $(seq 1 $COUNT); do
+    idx=$(( (i-1) % ${#DEFAULT_DOMAINS[@]} ))
+    DOMAINS+=("${DEFAULT_DOMAINS[$idx]}")
+  done
+fi
+
+# --- Ports: default or custom? must match COUNT if custom ---
+PORTS=()
 echo "Do you want to set custom ports? (y/N)"
 read -r ANS_PORTS
 ANS_PORTS="${ANS_PORTS,,}"
-PORTS=("${DEFAULT_PORTS[@]}")
 if [ "$ANS_PORTS" = "y" ] || [ "$ANS_PORTS" = "yes" ]; then
-  echo "Enter exactly 6 ports separated by commas (e.g., 443,8443,9443,10443,11443,12443):"
+  echo "Enter exactly $COUNT port(s) separated by commas (e.g., 443,8443,9443,10443,11443,12443):"
   read -r CSV_PORTS
   IFS=',' read -r -a PORTS <<< "$CSV_PORTS"
   for i in "${!PORTS[@]}"; do PORTS[$i]="${PORTS[$i]//[[:space:]]/}"; done
   if [ ${#PORTS[@]} -ne $COUNT ]; then
     echo "You must provide exactly $COUNT ports." >&2; exit 1
   fi
-fi
-
-# --- FakeTLS domains ---
-echo "Do you want to set custom FakeTLS domains? (y/N)"
-read -r ANS_TLS
-ANS_TLS="${ANS_TLS,,}"
-DOMAINS=("${DEFAULT_DOMAINS[@]}")
-if [ "$ANS_TLS" = "y" ] || [ "$ANS_TLS" = "yes" ]; then
-  echo "Enter exactly 6 domains separated by commas (e.g., www.divar.ir,www.aparat.com,...):"
-  read -r CSV_DOMAINS
-  IFS=',' read -r -a DOMAINS <<< "$CSV_DOMAINS"
-  for i in "${!DOMAINS[@]}"; do DOMAINS[$i]="${DOMAINS[$i]//[[:space:]]/}"; done
-  if [ ${#DOMAINS[@]} -ne $COUNT ]; then
-    echo "You must provide exactly $COUNT domains." >&2; exit 1
+else
+  # Take first COUNT from DEFAULT_PORTS
+  if [ ${#DEFAULT_PORTS[@]} -lt $COUNT ]; then
+    echo "Not enough default ports for COUNT=$COUNT. Reduce count or extend DEFAULT_PORTS." >&2
+    exit 1
   fi
+  for i in $(seq 1 $COUNT); do
+    PORTS+=("${DEFAULT_PORTS[$((i-1))]}")
+  done
 fi
 
 # --- prepare ---
@@ -120,17 +156,21 @@ for i in $(seq 1 $COUNT); do
   LINK="https://t.me/proxy?server=${SERVER_LABEL}&port=${PORT}&secret=dd${SECRET}"
 
   LINKS_SIMPLE+=("$LINK")
-  LINKS_GROUPED+=("FakeTLS: ${DOMAIN}\n${LINK}\n")
+  if [ "$CUSTOM_TLS" = "yes" ]; then
+    LINKS_GROUPED+=("FakeTLS: ${DOMAIN}\n${LINK}\n")
+  fi
   SECRETS_RAW+=("$SECRET")
 done
 
 echo
-echo "================= List 1 — User links (https) ================="
+echo "================= List — User links (https) ================="
 for L in "${LINKS_SIMPLE[@]}"; do echo "$L"; done
 
-echo
-echo "================= List 2 — Grouped by FakeTLS ================="
-for G in "${LINKS_GROUPED[@]}"; do echo -e "$G"; done
+if [ "$CUSTOM_TLS" = "yes" ]; then
+  echo
+  echo "================= List — Grouped by FakeTLS ================="
+  for G in "${LINKS_GROUPED[@]}"; do echo -e "$G"; done
+fi
 
 echo
 echo "NOTE:"
@@ -159,10 +199,9 @@ if [ "$ANS_TAG" = "y" ] || [ "$ANS_TAG" = "yes" ]; then
   echo
   echo "Paste the TAG here (or press Enter to skip):"
   read -r INPUT_TAG
+  USE_TAG=""
   if [ -n "$INPUT_TAG" ]; then
     USE_TAG="$INPUT_TAG"
-  else
-    USE_TAG="$DEFAULT_TAG"
   fi
 
   if [ -n "$USE_TAG" ]; then
